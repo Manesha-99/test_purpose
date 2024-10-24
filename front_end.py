@@ -31,19 +31,29 @@ def save_uploaded_file(uploaded_file):
 def rebuild_index():
     global index
 
+    # Check if 'data' directory has documents
     if not os.listdir(DATA_DIR):
-        st.write("Data directory is empty. Index will not be created.")
+        st.write("Data directory is empty. No files to index.")
         if os.path.exists(PERSIST_DIR):
+            # Try to load the index from persisted storage
+            st.write("Loading index from storage.")
             storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
             index = load_index_from_storage(storage_context)
+        else:
+            st.write("No index found in persisted storage.")
+            index = None
     else:
+        # If data exists, create or load the index
+        st.write("Data directory is not empty. Creating or loading the index.")
         if not os.path.exists(PERSIST_DIR):
             documents = SimpleDirectoryReader(DATA_DIR).load_data()
             index = VectorStoreIndex.from_documents(documents)
             index.storage_context.persist(persist_dir=PERSIST_DIR)
+            st.write("Index created and persisted.")
         else:
             storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
             index = load_index_from_storage(storage_context)
+            st.write("Index loaded from persisted storage.")
 
 def query_cv(file_path, prompt):
     global index
@@ -106,7 +116,7 @@ with st.sidebar:
         if uploaded_file is not None:
             file_path = save_uploaded_file(uploaded_file)
             st.session_state.file_path = file_path
-            st.success("CV submitted successfully!")
+            st.success(f"CV submitted successfully! File path: {file_path}")
             # Rebuild index after the file is uploaded
             rebuild_index()
 
