@@ -8,82 +8,36 @@ from llama_index.core import (
 )
 from dotenv import load_dotenv
 
-# Initialize environment and variables
+# Load environment variables
 load_dotenv()
 OpenAI_Key = os.getenv("OpenAI_Key")
 os.environ["OPENAI_API_KEY"] = OpenAI_Key
 
+# Define constants
 DATA_DIR = './data'
-PERSIST_DIR = './storage'
-index = None
+PERSIST_DIR = "./storage"
 
+# Initialize session state for index and messages
+if 'index' not in st.session_state:
+    st.session_state.index = None
+if 'file_path' not in st.session_state:
+    st.session_state.file_path = None
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+# Function to save the uploaded CV file
 def save_uploaded_file(uploaded_file):
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
-
+    
     file_path = os.path.join(DATA_DIR, uploaded_file.name)
-
+    
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
-
+    
     return file_path
 
-def rebuild_index():
-    global index
-
-    # Check if 'data' directory has documents
-    if not os.listdir(DATA_DIR):
-        st.write("Data directory is empty. No files to index.")
-        if os.path.exists(PERSIST_DIR):
-            st.write("Loading index from persisted storage.")
-            storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
-            try:
-                index = load_index_from_storage(storage_context)
-                st.write("Index successfully loaded from persisted storage.")
-            except Exception as e:
-                st.error(f"Failed to load index from storage: {e}")
-        else:
-            st.write("No index found in persisted storage.")
-            index = None
-    else:
-        # If data exists, create or load the index
-        st.write("Data directory is not empty. Creating or loading the index.")
-        if not os.path.exists(PERSIST_DIR):
-            documents = SimpleDirectoryReader(DATA_DIR).load_data()
-            index = VectorStoreIndex.from_documents(documents)
-            index.storage_context.persist(persist_dir=PERSIST_DIR)
-            st.write("Index created and persisted.")
-        else:
-            st.write("Attempting to load existing index from persisted storage.")
-            storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
-            try:
-                index = load_index_from_storage(storage_context)
-                st.write("Index successfully loaded from storage.")
-            except Exception as e:
-                st.error(f"Error while loading index: {e}")
-
-    if index is None:
-        st.error("Index has not been initialized. Please check the data directory or persisted storage.")
-    else:
-        st.write("Index is initialized and ready for use.")
-
-
-def query_cv(file_path, prompt):
-    global index
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError("The specified CV file was not found.")
-
-    if index is None:
-        raise ValueError("Index has not been initialized. Please check the data directory or persisted storage.")
-
-    query_engine = index.as_query_engine()
-    response = query_engine.query(prompt)
-
-    return str(response)
-
-
-# Streamlit UI
+# Chat styling
 st.markdown(
     """
     <style>
@@ -108,16 +62,61 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Initialize session state
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
-
+# Function to display messages
 def display_message(text, is_user):
     if is_user:
         return f"<div class='user-message'><strong>❓ You:</strong> {text}</div>"
     else:
         return f"<div class='bot-message'><strong>🤖 Bot:</strong> {text}</div>"
 
+# Function to rebuild or load the index
+def rebuild_index():
+    global index
+
+    # Check if 'data' directory has documents
+    if not os.listdir(DATA_DIR):
+        st.write("Data directory is empty. No files to index.")
+        if os.path.exists(PERSIST_DIR):
+            st.write("Loading index from persisted storage.")
+            storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
+            try:
+                st.session_state.index = load_index_from_storage(storage_context)
+                st.write("Index successfully loaded from persisted storage.")
+            except Exception as e:
+                st.error(f"Failed to load index from storage: {e}")
+        else:
+            st.write("No index found in persisted storage.")
+            st.session_state.index = None
+    else:
+        st.write("Data directory is not empty. Creating or loading the index.")
+        if not os.path.exists(PERSIST_DIR):
+            documents = SimpleDirectoryReader(DATA_DIR).load_data()
+            st.session_state.index = VectorStoreIndex.from_documents(documents)
+            st.session_state.index.storage_context.persist(persist_dir=PERSIST_DIR)
+            st.write("Index created and persisted.")
+        else:
+            st.write("Attempting to load existing index from persisted storage.")
+            storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
+            try:
+                st.session_state.index = load_index_from_storage(storage_context)
+                st.write("Index successfully loaded from storage.")
+            except Exception as e:
+                st.error(f"Error while loading index: {e}")
+
+# Function to query the CV using the loaded index
+def query_cv(file_path, prompt):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError("The specified CV file was not found.")
+
+    if st.session_state.index is None:
+        raise ValueError("Index has not been initialized. Please check the data directory or persisted storage.")
+
+    query_engine = st.session_state.index.as_query_engine()
+    response = query_engine.query(prompt)
+
+    return str(response)
+
+# Streamlit UI components
 st.title("CV Analysis Chatbot - Phase_01")
 
 # Sidebar for CV upload
@@ -128,10 +127,9 @@ with st.sidebar:
     if st.button("Submit CV"):
         if uploaded_file is not None:
             file_path = save_uploaded_file(uploaded_file)
-            st.session_state.file_path = file_path
-            st.success(f"CV submitted successfully! File path: {file_path}")
-            # Rebuild index after the file is uploaded
-            rebuild_index()
+            st.session_state.file_path = file_path  # Store file path in session state
+            st.success("CV submitted successfully!")
+            rebuild_index()  # Rebuild index upon uploading a new CV
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -148,15 +146,16 @@ st.write("### Chatbot Responses:")
 
 # Handle form submission
 if submit_button and prompt:
-    if 'file_path' in st.session_state:
+    if 'file_path' in st.session_state:  # Check if file is uploaded
         file_path = st.session_state.file_path
         try:
             chatbot_response = query_cv(file_path, prompt)
 
+            # Append messages to chat history
             st.session_state.messages.append(display_message(prompt, is_user=True))
             st.session_state.messages.append(display_message(chatbot_response, is_user=False))
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error: {str(e)}")
     else:
         st.warning("Please upload a CV before asking questions.")
 
