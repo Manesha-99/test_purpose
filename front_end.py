@@ -35,10 +35,13 @@ def rebuild_index():
     if not os.listdir(DATA_DIR):
         st.write("Data directory is empty. No files to index.")
         if os.path.exists(PERSIST_DIR):
-            # Try to load the index from persisted storage
-            st.write("Loading index from storage.")
+            st.write("Loading index from persisted storage.")
             storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
-            index = load_index_from_storage(storage_context)
+            try:
+                index = load_index_from_storage(storage_context)
+                st.write("Index successfully loaded from persisted storage.")
+            except Exception as e:
+                st.error(f"Failed to load index from storage: {e}")
         else:
             st.write("No index found in persisted storage.")
             index = None
@@ -51,9 +54,19 @@ def rebuild_index():
             index.storage_context.persist(persist_dir=PERSIST_DIR)
             st.write("Index created and persisted.")
         else:
+            st.write("Attempting to load existing index from persisted storage.")
             storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
-            index = load_index_from_storage(storage_context)
-            st.write("Index loaded from persisted storage.")
+            try:
+                index = load_index_from_storage(storage_context)
+                st.write("Index successfully loaded from storage.")
+            except Exception as e:
+                st.error(f"Error while loading index: {e}")
+
+    if index is None:
+        st.error("Index has not been initialized. Please check the data directory or persisted storage.")
+    else:
+        st.write("Index is initialized and ready for use.")
+
 
 def query_cv(file_path, prompt):
     global index
